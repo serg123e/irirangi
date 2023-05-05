@@ -14,15 +14,19 @@ flowchart TD
 
 ## Installation
 
+
 1. Register new bot asking [BotFather](https://t.me/botfather) and get a token
-2. Edit following files replacing `hackme` with your secret password and putting corresponding tokens:
+2. `git clone https://github.com/serg123e/irirangi.git`
+3. `cd irirangi`
+4. Edit following files replacing `hackme` with your secret password and putting corresponding tokens:
     - .env
     - mpd.music.conf
     - mpd.voice.conf
     - icecast.xml
 
-3. run `docker-compose up -d`
-4. You are awesome!
+5. Run `docker-compose up -d`
+6. Now write /start to your bot and add it as and admin to your favorite telegram group
+7. You are awesome! 
 
 ## Bot commands
 
