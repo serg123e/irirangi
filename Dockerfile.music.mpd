@@ -1,0 +1,18 @@
+FROM alpine:latest
+
+RUN apk update && \
+    apk add mpd 
+RUN apk add lsof bash
+
+# COPY mpd.music.conf /etc/mpd.conf
+COPY ./jingles/nightingale_singing.mp3 /usr/share/icecast/web/
+
+RUN addgroup mpd
+RUN mkdir -p /music
+RUN mkdir -p /mpd
+
+VOLUME /music
+VOLUME /mpd
+
+# CMD ["lsof", "-i", ":6600"]
+CMD ["mpd", "--stderr", "--no-daemon", "/etc/mpd.conf"]

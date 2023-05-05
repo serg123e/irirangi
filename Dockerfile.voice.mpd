@@ -1,0 +1,14 @@
+FROM alpine:latest
+
+RUN apk update && \
+    apk add mpd 
+RUN apk add lsof bash
+
+RUN addgroup mpd
+RUN mkdir -p /voice
+RUN mkdir -p /mpd
+
+VOLUME /music
+VOLUME /mpd
+
+CMD ["mpd", "--stdout", "--no-daemon", "/etc/mpd.conf"]

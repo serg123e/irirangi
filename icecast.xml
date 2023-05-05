@@ -1,0 +1,82 @@
+<icecast>
+  <changeowner>
+    <user>icecast</user>
+    <group>icecast</group>
+  </changeowner>
+  <location>Moon</location>
+  <admin>My Admin</admin>
+  <limits>
+    <clients>100</clients>
+    <sources>10</sources>
+    <threadpool>5</threadpool>
+    <queue-size>524288</queue-size>
+    <client-timeout>60</client-timeout>
+    <header-timeout>15</header-timeout>
+    <source-timeout>30</source-timeout>
+    <burst-size>65535</burst-size>
+  </limits>
+  <authentication>
+    <source-password>hackme</source-password>
+    <relay-password>hackme</relay-password>
+    <admin-user>admin</admin-user>
+    <admin-password>hackme</admin-password>
+  </authentication>
+  <hostname>myhost.mydomain</hostname>
+  <listen-socket>
+    <port>8000</port>
+  </listen-socket>
+  <fileserve>1</fileserve>
+  <paths>
+    <logdir>/var/log/icecast</logdir>
+    <webroot>/usr/share/icecast/web</webroot>
+    <adminroot>/usr/share/icecast/admin</adminroot>
+    <alias source="/" destination="/status.xsl"/>
+  </paths>
+  <logging>
+    <accesslog>access.log</accesslog>
+    <errorlog>error.log</errorlog>
+    <loglevel>1</loglevel>
+    <logsize>10000</logsize>
+  </logging>
+
+  <mount>
+    <mount-name>/irirangi</mount-name>
+    <password>hackme</password>
+    <max-listeners>100</max-listeners>
+    <fallback-mount>/voice</fallback-mount>
+    <fallback-override>1</fallback-override>
+    <public>-1</public>
+    <hidden>0</hidden>
+    <burst-size>65535</burst-size>
+  </mount>
+
+  <mount>
+    <mount-name>/voice</mount-name>
+    <password>hackme</password>
+    <max-listeners>100</max-listeners>
+    <fallback-mount>/live</fallback-mount>
+    <fallback-override>1</fallback-override>
+    <public>0</public>
+    <burst-size>65535</burst-size>
+  </mount>
+
+  <mount>
+    <mount-name>/live</mount-name>
+    <password>hackme</password>
+    <max-listeners>100</max-listeners>
+    <fallback-mount>/music</fallback-mount>
+    <fallback-override>1</fallback-override>
+    <public>0</public>
+    <burst-size>65535</burst-size>
+  </mount>
+
+  <mount>
+    <mount-name>/music</mount-name>
+    <password>hackme</password>
+    <max-listeners>100</max-listeners>
+    <fallback-mount>/jingles/nightingale_singing.mp3</fallback-mount>
+    <fallback-override>1</fallback-override>
+    <public>0</public>
+    <burst-size>65535</burst-size>
+  </mount>
+</icecast>

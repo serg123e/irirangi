@@ -1,0 +1,81 @@
+version: '3.8'
+services:
+  icecast:
+    user: icecast
+    image: infiniteproject/icecast
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./icecast.xml:/etc/icecast.xml
+      - ./music:/music
+      - ./jingles:/usr/share/icecast/web/jingles
+      - ./logs/icecast:/var/log/icecast
+  mpd-voice:
+    user: mpd
+    build:
+      context: .
+      dockerfile: Dockerfile.voice.mpd
+    image: irirangi-mpd-voice-image:latest
+    volumes:
+      - ./mpd.voice.conf:/etc/mpd.conf
+      - ./voice:/voice
+      - ./mpd:/mpd
+
+  mpd:
+    user: mpd
+    build:
+      context: .
+      dockerfile: Dockerfile.music.mpd
+    image: irirangi-mpd-image:latest
+    volumes:
+      - ./mpd/run/:/run/mpd/
+      - ./mpd.music.conf:/etc/mpd.conf
+      - ./music:/music
+      - ./mpd:/mpd
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.py.bot
+    image: irirangi-telegram-bot:latest
+    volumes:
+      - ./music:/music
+      - ./voice:/voice
+      - ./app:/app
+    command: /bin/sh -c "sleep 2 && python /app/bot.py"
+    restart: unless-stopped
+
+  mympd:
+    image: ghcr.io/jcorporation/mympd/mympd
+    container_name: irirangi-mympd
+    user: 1000:1000
+    environment:
+      - UMASK_SET=022
+      - MPD_HOST=mpd
+      - MPD_PORT=6600
+      - MYMPD_SSL=false
+      - MYMPD_HTTP_PORT=8080
+      - MYMPD_LOGLEVEL=0
+    volumes:
+      - ./mympd/workdir:/var/lib/mympd/
+      - ./mympd/cachedir:/var/cache/mympd/
+      - ./music/:/music/:ro
+      - ./mpd/playlists/:/mpd/playlists/:ro
+    restart: unless-stopped
+
+  tunnel:
+    container_name: irirangi-cloudflared-tunnel
+    image: cloudflare/cloudflared
+    restart: unless-stopped
+    command: tunnel run --protocol http2
+
+  analytics:
+    image: python:3.9-alpine
+    command: bin/sh -c "pip install requests pytz && python /analytics/monitor.py"
+    environment:
+      - ICECAST_ADMIN_USERNAME=admin
+      - ICECAST_STATS_URL=http://icecast:8000/admin/stats
+
+    volumes:
+      - ./analytics:/analytics
+      - ./logs:/logs
