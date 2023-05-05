@@ -27,7 +27,7 @@ flowchart TD
 5. Run `docker-compose build --build-arg UID="$(id -u)" --build-arg GID="$(id -g)"`
 6. Run `docker-compose up -d`
 7. Now write /start to your bot and add it as and admin to your favorite telegram group
-8. You are awesome! 
+8. You are awesome! Check http://your-host-name:8000/irirangi for the radio stream
 
 ## Bot commands
 
