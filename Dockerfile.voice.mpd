@@ -9,5 +9,6 @@ RUN apk update && \
 
 VOLUME /music
 VOLUME /mpd
+USER mpd
 
 CMD ["mpd", "--stdout", "--no-daemon", "/etc/mpd.conf"]

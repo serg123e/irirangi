@@ -13,4 +13,6 @@ RUN apk add --update \
 
 EXPOSE 8000
 VOLUME ["/var/log/icecast"]
+USER icecast
+
 CMD icecast -c /etc/icecast.xml

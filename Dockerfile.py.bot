@@ -26,5 +26,6 @@ RUN apk add mp3gain --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testi
 # RUN hash -r
 
 # COPY app/bot.py .
+USER bot
 
 CMD ["python", "bot.py"]

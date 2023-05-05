@@ -1,19 +1,18 @@
 version: '3.8'                   
 services:
   icecast:
-    user: "${UID}:${GID}"
     build:
       context: .
-      dockerfile: Dockerfile.voice.mpd
+      dockerfile: Dockerfile.icecast
     image: irirangi-icecast-image
     ports:
       - "8000:8000"
     volumes:
       - ./icecast.xml:/etc/icecast.xml
+      - ./logs/icecast:/var/log/icecast
       - ./music:/music
       - ./jingles:/usr/share/icecast/web/jingles
   mpd-voice:
-    user: "${UID}:${GID}"
     build:
       context: .
       dockerfile: Dockerfile.voice.mpd
@@ -24,7 +23,6 @@ services:
       - ./mpd:/mpd
 
   mpd:
-    user: "${UID}:${GID}"
     build:
       context: .
       dockerfile: Dockerfile.music.mpd
@@ -36,11 +34,10 @@ services:
       - ./mpd:/mpd
 
   bot:
-    user: "${UID}:${GID}"
     build:
       context: .
       dockerfile: Dockerfile.py.bot
-    image: irirangi-telegram-bot
+    image: irirangi-bot-image
     env_file:
       - bot.env
     volumes:

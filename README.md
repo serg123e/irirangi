@@ -24,9 +24,10 @@ flowchart TD
     - mpd.voice.conf
     - icecast.xml
 
-5. Run `docker-compose up -d`
-6. Now write /start to your bot and add it as and admin to your favorite telegram group
-7. You are awesome! 
+5. Run `docker-compose build --build-arg UID="$(id -u)" --build-arg GID="$(id -g)"`
+6. Run `docker-compose up -d`
+7. Now write /start to your bot and add it as and admin to your favorite telegram group
+8. You are awesome! 
 
 ## Bot commands
 
