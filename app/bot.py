@@ -7,37 +7,67 @@ import telegram
 from telegram.ext import Application, Updater, CommandHandler, MessageHandler, filters
 import subprocess
 
-def mpc_command(command, args=[]):
-    return mpc_port_command(command, "mpd", "6600", args)
+def mpc_command(command, args=None, retries=0, delay=5):
+    return mpc_port_command(command, "mpd", "6600", args, retries, delay)
 
-def mpc_voice_command(command, args=[]):
-    return mpc_port_command(command, "mpd-voice", "6700", args)
+def mpc_voice_command(command, args=None, retries=0, delay=5):
+    return mpc_port_command(command, "mpd-voice", "6700", args, retries, delay)
 
-def mpc_port_command(command, host, port, args=[]):
+def mpc_port_command(command, host, port, args=None, retries=3, delay=5):
     """
     Helper method to execute MPC commands and return the output
+
+    :param command: the command to execute
+    :param host: the host to connect to
+    :param port: the port to use
+    :param args: a list of additional arguments (default: None)
+    :param retries: the number of times to retry the command in case of failure (default: 3)
+    :param delay: the time in seconds to wait between retries (default: 5)
+    :return: the output of the command
     """
+    if args is None:
+        args = []
+
     cmd = ["mpc", "-h", host, "-p", port, command] + args
-    output = subprocess.check_output(cmd).decode(sys.stdout.encoding).strip()
-    return output
+
+    for i in range(retries + 1):
+        try:
+            output = subprocess.check_output(cmd).decode(sys.stdout.encoding).strip()
+            return output
+        except subprocess.CalledProcessError as e:
+            if i < retries:
+                logging.warning(f"Error occurred: {e}, retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                logging.error(f"Error occurred: {e}")
+                raise
+
+def init_mpc(host, port, settings, retries=3):
+    for command, args in settings.items():
+        mpc_port_command(command, host, port, args, retries)
+
+def mpd_init():
+    settings = {
+        "consume": ["off"],
+        "repeat": ["on"],
+        "random": ["off"],
+        "crossfade": ["3"],
+        "mixrampdb": ["-24"],
+        "mixrampdelay": ["3"]
+    }
+    init_mpc("mpd", "6600", settings)
+
+def mpd_voice_init():
+    settings = {
+        "consume": ["on"],
+        "repeat": ["off"],
+        "random": ["off"],
+        "crossfade": ["2"]
+    }
+    init_mpc("mpd-voice", "6700", settings)
 
 async def start(update, context):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Hi, I'm a radio streaming bot! Send me audio files, soundcloud or youtube links to add to the playlist. You can also use the /next command to skip to the next song in the playlist.")
-
-def mpd_init():
-    mpc_command("consume", ["off"])
-    mpc_command("repeat",["on"])
-    mpc_command("random",["off"])
-    mpc_command("crossfade",["3"])
-    mpc_command("mixrampdb",["-24"])
-    mpc_command("mixrampdelay",["3"])
-
-
-def mpd_voice_init():
-    mpc_voice_command("consume",["on"])
-    mpc_voice_command("repeat",["off"])
-    mpc_voice_command("random",["off"])
-    mpc_voice_command("crossfade",["2"])
 
 def mpc_add_file(filename):
     mpc_command("--wait",["update"])
@@ -92,11 +122,8 @@ async def download(update, context):
                     else:
                       cmd = ["timeout", "300s", "yt-dlp", "--print", "after_move:filepath", "--no-simulate", "--add-metadata", "--extract-audio", "-f", "140", url]
                     output = subprocess.check_output(cmd).decode().strip()
-                    # await context.bot.send_message(chat_id=chat_id, text="Got "+filename_ext)
                     path, filename_ext = os.path.split(output)
                     mpc_add_file(filename_ext)
-
-                    # output = subprocess.check_output(cmd)
                     await context.bot.send_message(chat_id=chat_id, text="Track "+filename_ext+" downloaded and added to playlist!")
 
             else:
