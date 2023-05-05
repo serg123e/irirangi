@@ -1,12 +1,11 @@
 FROM alpine:latest
 
+ARG UID
+ARG GID
+RUN addgroup -g ${GID} -S mpd && adduser --uid ${UID} -S -G mpd mpd
+
 RUN apk update && \
     apk add mpd 
-RUN apk add lsof bash
-
-RUN addgroup mpd
-RUN mkdir -p /voice
-RUN mkdir -p /mpd
 
 VOLUME /music
 VOLUME /mpd

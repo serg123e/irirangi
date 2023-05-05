@@ -1,0 +1,16 @@
+FROM alpine:latest
+
+ARG UID
+ARG GID
+
+RUN addgroup -g ${GID} -S icecast && \ 
+    adduser --uid ${UID} -S icecast icecast
+    
+RUN apk add --update \
+        icecast \
+        mailcap && \
+    rm -rf /var/cache/apk/*
+
+EXPOSE 8000
+VOLUME ["/var/log/icecast"]
+CMD icecast -c /etc/icecast.xml

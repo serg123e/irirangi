@@ -1,5 +1,10 @@
 FROM python:3.9-alpine
 
+ARG UID
+ARG GID
+
+RUN addgroup -g ${GID} -S bot && adduser --uid ${UID} -S -G bot bot
+
 WORKDIR /app
 
 COPY requirements.txt .

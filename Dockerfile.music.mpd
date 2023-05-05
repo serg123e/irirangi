@@ -1,18 +1,22 @@
 FROM alpine:latest
 
+ARG UID
+ARG GID
+
+RUN addgroup -g ${GID} -S mpd && adduser --uid ${UID} -S -G mpd mpd
+
 RUN apk update && \
     apk add mpd 
-RUN apk add lsof bash
 
-# COPY mpd.music.conf /etc/mpd.conf
-COPY ./jingles/nightingale_singing.mp3 /usr/share/icecast/web/
-
-RUN addgroup mpd
 RUN mkdir -p /music
-RUN mkdir -p /mpd
+RUN mkdir -p /mpd/db
+RUN mkdir -p /mpd/playlists
+
+RUN chown -R mpd:mpd /mpd
+RUN chown -R mpd:mpd /music
 
 VOLUME /music
 VOLUME /mpd
 
-# CMD ["lsof", "-i", ":6600"]
+USER mpd
 CMD ["mpd", "--stderr", "--no-daemon", "/etc/mpd.conf"]

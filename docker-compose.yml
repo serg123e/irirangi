@@ -1,32 +1,34 @@
-version: '3.8'
+version: '3.8'                   
 services:
   icecast:
-    user: icecast
-    image: infiniteproject/icecast
+    user: "${UID}:${GID}"
+    build:
+      context: .
+      dockerfile: Dockerfile.voice.mpd
+    image: irirangi-icecast-image
     ports:
       - "8000:8000"
     volumes:
       - ./icecast.xml:/etc/icecast.xml
       - ./music:/music
       - ./jingles:/usr/share/icecast/web/jingles
-      - ./logs/icecast:/var/log/icecast
   mpd-voice:
-    user: mpd
+    user: "${UID}:${GID}"
     build:
       context: .
       dockerfile: Dockerfile.voice.mpd
-    image: irirangi-mpd-voice-image:latest
+    image: irirangi-mpd-voice-image
     volumes:
       - ./mpd.voice.conf:/etc/mpd.conf
       - ./voice:/voice
       - ./mpd:/mpd
 
   mpd:
-    user: mpd
+    user: "${UID}:${GID}"
     build:
       context: .
       dockerfile: Dockerfile.music.mpd
-    image: irirangi-mpd-image:latest
+    image: irirangi-mpd-image
     volumes:
       - ./mpd/run/:/run/mpd/
       - ./mpd.music.conf:/etc/mpd.conf
@@ -34,13 +36,15 @@ services:
       - ./mpd:/mpd
 
   bot:
+    user: "${UID}:${GID}"
     build:
       context: .
       dockerfile: Dockerfile.py.bot
-    image: irirangi-telegram-bot:latest
+    image: irirangi-telegram-bot
+    env_file:
+      - bot.env
     volumes:
       - ./music:/music
       - ./voice:/voice
       - ./app:/app
-    command: /bin/sh -c "sleep 2 && python /app/bot.py"
     restart: unless-stopped
