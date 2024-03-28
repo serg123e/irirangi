@@ -30,13 +30,16 @@ flowchart TD
 8. You are awesome! Check http://your-host-name:8000/irirangi for the radio stream
 
 ## Bot commands
-
-/status 
-/seek <position>
-/next
-/play
-/stop
-/move <from-position> <to-position> 
-/del <position> 
-/add <url_or_filename>
-/playlist
+    
+    /status 
+    /seek <position>
+    /next
+    /play
+    /stop
+    /move <from-position> <to-position> 
+    /del <position> 
+    /playlist
+    /add <url_or_filename>
+    https://soundcloud.com/link/to/track
+    https://music.youtube.com/watch?v=TRACK_TO_ADD
+    
