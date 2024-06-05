@@ -19,7 +19,7 @@ flowchart TD
 2. `git clone https://github.com/serg123e/irirangi.git`
 3. `cd irirangi`
 4. Edit following files replacing `hackme` with your secret password and putting corresponding tokens:
-    - .env
+    - bot.env
     - mpd.music.conf
     - mpd.voice.conf
     - icecast.xml
