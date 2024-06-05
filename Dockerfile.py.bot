@@ -18,14 +18,7 @@ RUN apk add --no-cache --virtual .build-deps \
     && apk del .build-deps
 RUN apk add mpc ffmpeg
 RUN apk add mp3gain --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing/
-# RUN pip install --upgrade python-telegram-bot
-# RUN pip install --upgrade youtube-dl
 
-# RUN wget https://yt-dl.org/downloads/latest/youtube-dl -O /usr/local/bin/youtube-dl
-# RUN chmod a+rx /usr/local/bin/youtube-dl
-# RUN hash -r
-
-# COPY app/bot.py .
 USER bot
 
 CMD ["python", "bot.py"]
