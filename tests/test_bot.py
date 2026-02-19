@@ -126,6 +126,97 @@ class TestValidateUrl:
 
 
 # ===========================================================================
+# is_soundcloud_url
+# ===========================================================================
+
+class TestIsSoundcloudUrl:
+    def test_soundcloud(self):
+        assert bot.is_soundcloud_url("https://soundcloud.com/artist/track") is True
+
+    def test_youtube(self):
+        assert bot.is_soundcloud_url("https://www.youtube.com/watch?v=abc") is False
+
+    def test_youtube_with_soundcloud_in_query(self):
+        assert bot.is_soundcloud_url("https://www.youtube.com/watch?soundcloud=1") is False
+
+    def test_garbage(self):
+        assert bot.is_soundcloud_url("not a url") is False
+
+
+# ===========================================================================
+# check_disk_space
+# ===========================================================================
+
+class TestCheckDiskSpace:
+    @patch("bot.shutil.disk_usage")
+    def test_enough_space(self, mock_usage):
+        mock_usage.return_value = MagicMock(free=2 * 1024**3)
+        assert bot.check_disk_space("/music") is True
+
+    @patch("bot.shutil.disk_usage")
+    def test_low_space(self, mock_usage):
+        mock_usage.return_value = MagicMock(free=500 * 1024**2)
+        assert bot.check_disk_space("/music") is False
+
+    @patch("bot.shutil.disk_usage", side_effect=OSError("no such path"))
+    def test_os_error_returns_false(self, mock_usage):
+        assert bot.check_disk_space("/nonexistent") is False
+
+
+# ===========================================================================
+# validate_seek_arg / validate_position_arg
+# ===========================================================================
+
+class TestValidateSeekArg:
+    def test_seconds(self):
+        assert bot.validate_seek_arg("120") is True
+
+    def test_mm_ss(self):
+        assert bot.validate_seek_arg("3:30") is True
+
+    def test_hh_mm_ss(self):
+        assert bot.validate_seek_arg("1:03:30") is True
+
+    def test_percentage(self):
+        assert bot.validate_seek_arg("50%") is True
+
+    def test_plus_offset(self):
+        assert bot.validate_seek_arg("+30") is True
+
+    def test_minus_offset(self):
+        assert bot.validate_seek_arg("-10") is True
+
+    def test_plus_percentage(self):
+        assert bot.validate_seek_arg("+5%") is True
+
+    def test_rejects_text(self):
+        assert bot.validate_seek_arg("abc") is False
+
+    def test_rejects_flags(self):
+        assert bot.validate_seek_arg("--help") is False
+
+    def test_rejects_empty(self):
+        assert bot.validate_seek_arg("") is False
+
+
+class TestValidatePositionArg:
+    def test_number(self):
+        assert bot.validate_position_arg("5") is True
+
+    def test_zero(self):
+        assert bot.validate_position_arg("0") is True
+
+    def test_rejects_negative(self):
+        assert bot.validate_position_arg("-1") is False
+
+    def test_rejects_text(self):
+        assert bot.validate_position_arg("abc") is False
+
+    def test_rejects_flags(self):
+        assert bot.validate_position_arg("--format") is False
+
+
+# ===========================================================================
 # load_admin_usernames
 # ===========================================================================
 
@@ -268,8 +359,9 @@ class TestDownloadHandler:
         await bot.download(update, ctx)
         ctx.bot.send_message.assert_not_called()
 
+    @patch("bot.check_disk_space", return_value=True)
     @patch("bot.mpc_add_file")
-    async def test_audio_file_saved_and_added(self, mock_add):
+    async def test_audio_file_saved_and_added(self, mock_add, mock_disk):
         audio = MagicMock()
         audio.file_id = "file_123"
         update = make_update(username="alice", audio=audio)
@@ -285,11 +377,25 @@ class TestDownloadHandler:
         ctx.bot.send_message.assert_called_once()
         assert "Audio file added" in ctx.bot.send_message.call_args.kwargs["text"]
 
+    @patch("bot.check_disk_space", return_value=False)
+    @patch("bot.mpc_add_file")
+    async def test_audio_rejected_on_low_disk(self, mock_add, mock_disk):
+        audio = MagicMock()
+        audio.file_id = "file_123"
+        update = make_update(username="alice", audio=audio)
+        ctx = make_context()
+
+        await bot.download(update, ctx)
+
+        mock_add.assert_not_called()
+        assert "Low disk space" in ctx.bot.send_message.call_args.kwargs["text"]
+
+    @patch("bot.check_disk_space", return_value=True)
     @patch("bot.os.path.exists", return_value=True)
     @patch("bot.os.remove")
     @patch("bot.subprocess.check_output", return_value=b"")
     @patch("bot.mpc_voice_command")
-    async def test_voice_message_processes_and_cleans_tmp(self, mock_voice, mock_sub, mock_rm, mock_exists):
+    async def test_voice_message_processes_and_cleans_tmp(self, mock_voice, mock_sub, mock_rm, mock_exists, mock_disk):
         voice = MagicMock()
         voice.file_id = "voice_456"
         update = make_update(username="alice", voice=voice)
@@ -300,13 +406,20 @@ class TestDownloadHandler:
 
         await bot.download(update, ctx)
 
+        # ffmpeg wrapped with timeout
+        ffmpeg_cmd = mock_sub.call_args[0][0]
+        assert ffmpeg_cmd[0] == "timeout"
+        assert ffmpeg_cmd[1] == "60s"
+        assert ffmpeg_cmd[2] == "ffmpeg"
+
         mock_rm.assert_called_once_with("/tmp/msg.oga")
         mock_voice.assert_any_call("play")
         assert "Voice file added" in ctx.bot.send_message.call_args.kwargs["text"]
 
+    @patch("bot.check_disk_space", return_value=True)
     @patch("bot.mpc_add_file")
     @patch("bot.subprocess.check_output", return_value=b"/music/track.opus\n")
-    async def test_youtube_url_downloaded(self, mock_sub, mock_add):
+    async def test_youtube_url_downloaded(self, mock_sub, mock_add, mock_disk):
         update = make_update(username="alice", text="check this https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         update.message.audio = None
         update.message.voice = None
@@ -317,6 +430,7 @@ class TestDownloadHandler:
         mock_sub.assert_called_once()
         cmd_args = mock_sub.call_args[0][0]
         assert "yt-dlp" in cmd_args
+        assert "-f" in cmd_args  # youtube uses -f 140
         assert "https://www.youtube.com/watch?v=dQw4w9WgXcQ" in cmd_args
         mock_add.assert_called_once_with("track.opus")
 
@@ -331,9 +445,10 @@ class TestDownloadHandler:
         ctx.bot.send_message.assert_called_once()
         assert "only YouTube and SoundCloud" in ctx.bot.send_message.call_args.kwargs["text"]
 
+    @patch("bot.check_disk_space", return_value=True)
     @patch("bot.mpc_add_file")
     @patch("bot.subprocess.check_output", return_value=b"/music/track.mp3\n")
-    async def test_soundcloud_url_downloaded(self, mock_sub, mock_add):
+    async def test_soundcloud_url_downloaded(self, mock_sub, mock_add, mock_disk):
         update = make_update(username="alice", text="https://soundcloud.com/artist/song")
         update.message.audio = None
         update.message.voice = None
@@ -343,6 +458,48 @@ class TestDownloadHandler:
 
         cmd_args = mock_sub.call_args[0][0]
         assert "-f" not in cmd_args  # soundcloud doesn't use -f 140
+
+    @patch("bot.check_disk_space", return_value=True)
+    @patch("bot.mpc_add_file")
+    @patch("bot.subprocess.check_output", return_value=b"/music/track.mp3\n")
+    async def test_youtube_with_soundcloud_in_query_uses_youtube_branch(self, mock_sub, mock_add, mock_disk):
+        update = make_update(username="alice", text="https://www.youtube.com/watch?v=abc&soundcloud=1")
+        update.message.audio = None
+        update.message.voice = None
+        ctx = make_context()
+
+        await bot.download(update, ctx)
+
+        cmd_args = mock_sub.call_args[0][0]
+        assert "-f" in cmd_args  # youtube branch, not soundcloud
+
+    @patch("bot.check_disk_space", return_value=True)
+    @patch("bot.mpc_add_file")
+    @patch("bot.subprocess.check_output", return_value=b"/music/My V\xc3\xaddeo (Official).opus\n")
+    async def test_ytdlp_filename_is_sanitized(self, mock_sub, mock_add, mock_disk):
+        update = make_update(username="alice", text="https://www.youtube.com/watch?v=abc")
+        update.message.audio = None
+        update.message.voice = None
+        ctx = make_context()
+
+        await bot.download(update, ctx)
+
+        added_filename = mock_add.call_args[0][0]
+        assert ".." not in added_filename
+        assert "/" not in added_filename
+
+    @patch("bot.check_disk_space", return_value=False)
+    @patch("bot.mpc_add_file")
+    async def test_url_download_rejected_on_low_disk(self, mock_add, mock_disk):
+        update = make_update(username="alice", text="https://www.youtube.com/watch?v=abc")
+        update.message.audio = None
+        update.message.voice = None
+        ctx = make_context()
+
+        await bot.download(update, ctx)
+
+        mock_add.assert_not_called()
+        assert "Low disk space" in ctx.bot.send_message.call_args.kwargs["text"]
 
 
 @pytest.mark.asyncio
@@ -358,6 +515,14 @@ class TestAdminOnlyCommands:
         mock_add.assert_not_called()
         assert "admins only" in ctx.bot.send_message.call_args.kwargs["text"]
 
+    @patch("bot.mpc_add_file")
+    async def test_add_rejects_path_traversal(self, mock_add):
+        update = make_update(username="alice")
+        ctx = make_context(args=["../../etc/passwd"])
+        await bot.add_to_playlist(update, ctx)
+        mock_add.assert_not_called()
+        assert "Invalid filename" in ctx.bot.send_message.call_args.kwargs["text"]
+
     @patch("bot.mpc_command")
     async def test_seek_blocked_for_non_admin(self, mock_mpc):
         bot.ADMIN_USERNAMES.add("alice")
@@ -365,6 +530,20 @@ class TestAdminOnlyCommands:
         ctx = make_context(args=["50%"])
         await bot.seek(update, ctx)
         mock_mpc.assert_not_called()
+
+    @patch("bot.mpc_command")
+    async def test_seek_rejects_invalid_arg(self, mock_mpc):
+        update = make_update(username="alice")
+        ctx = make_context(args=["--help"])
+        await bot.seek(update, ctx)
+        mock_mpc.assert_not_called()
+
+    @patch("bot.mpc_command", return_value="OK")
+    async def test_seek_accepts_valid_arg(self, mock_mpc):
+        update = make_update(username="alice")
+        ctx = make_context(args=["50%"])
+        await bot.seek(update, ctx)
+        mock_mpc.assert_called_once_with("seek", ["50%"])
 
     @patch("bot.mpc_command")
     async def test_delete_blocked_for_non_admin(self, mock_mpc):
@@ -375,10 +554,24 @@ class TestAdminOnlyCommands:
         mock_mpc.assert_not_called()
 
     @patch("bot.mpc_command")
+    async def test_delete_rejects_invalid_arg(self, mock_mpc):
+        update = make_update(username="alice")
+        ctx = make_context(args=["--format"])
+        await bot.delete(update, ctx)
+        mock_mpc.assert_not_called()
+
+    @patch("bot.mpc_command")
     async def test_move_blocked_for_non_admin(self, mock_mpc):
         bot.ADMIN_USERNAMES.add("alice")
         update = make_update(username="bob")
         ctx = make_context(args=["1", "3"])
+        await bot.move(update, ctx)
+        mock_mpc.assert_not_called()
+
+    @patch("bot.mpc_command")
+    async def test_move_rejects_invalid_args(self, mock_mpc):
+        update = make_update(username="alice")
+        ctx = make_context(args=["abc", "3"])
         await bot.move(update, ctx)
         mock_mpc.assert_not_called()
 

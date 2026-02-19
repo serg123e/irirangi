@@ -4,16 +4,17 @@ import sys
 import logging
 import time
 import uuid
+import shutil
 from urllib.parse import urlparse
 import telegram
 from telegram.ext import Application, Updater, CommandHandler, MessageHandler, filters
 import subprocess
 
-ALLOWED_URL_DOMAINS = {
-    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
-    "youtu.be",
-    "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com",
-}
+MIN_FREE_SPACE_BYTES = 1024 * 1024 * 1024  # 1 GB
+
+SOUNDCLOUD_DOMAINS = {"soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"}
+YOUTUBE_DOMAINS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
+ALLOWED_URL_DOMAINS = SOUNDCLOUD_DOMAINS | YOUTUBE_DOMAINS
 
 ADMIN_USERNAMES = set()
 
@@ -51,6 +52,25 @@ def validate_url(url):
         pass
     return False
 
+def is_soundcloud_url(url):
+    try:
+        parsed = urlparse(url)
+        return bool(parsed.hostname and parsed.hostname.lower() in SOUNDCLOUD_DOMAINS)
+    except Exception:
+        return False
+
+def check_disk_space(path):
+    try:
+        return shutil.disk_usage(path).free >= MIN_FREE_SPACE_BYTES
+    except OSError:
+        return False
+
+def validate_seek_arg(arg):
+    return bool(re.match(r'^[+-]?(\d+:)*\d+%?$', arg))
+
+def validate_position_arg(arg):
+    return bool(re.match(r'^\d+$', arg))
+
 def mpc_command(command, args=None, retries=0, delay=5):
     return mpc_port_command(command, "mpd", "6600", args, retries, delay)
 
@@ -76,7 +96,7 @@ def mpc_port_command(command, host, port, args=None, retries=3, delay=5):
 
     for i in range(retries + 1):
         try:
-            output = subprocess.check_output(cmd).decode(sys.stdout.encoding).strip()
+            output = subprocess.check_output(cmd).decode("utf-8").strip()
             return output
         except subprocess.CalledProcessError as e:
             if i < retries:
@@ -126,6 +146,9 @@ async def download(update, context):
         audio = update.message.audio
         voice = update.message.voice
         if audio:
+            if not check_disk_space("/music"):
+                await context.bot.send_message(chat_id=chat_id, text="Low disk space, cannot save file.")
+                return
             file_id = audio.file_id
             newFile = await context.bot.getFile(file_id)
             filename = sanitize_filename(newFile.file_path.split("/")[-1])
@@ -133,12 +156,15 @@ async def download(update, context):
             mpc_add_file(filename)
             await context.bot.send_message(chat_id=chat_id, text="Audio file added to playlist!")
         elif voice:
+            if not check_disk_space("/voice"):
+                await context.bot.send_message(chat_id=chat_id, text="Low disk space, cannot save file.")
+                return
             file_id = voice.file_id
             newFile = await context.bot.getFile(file_id)
             filename = sanitize_filename(newFile.file_path.split("/")[-1])
             tmp_path = "/tmp/" + filename
             await newFile.download_to_drive(custom_path=tmp_path)
-            cmd = ["ffmpeg", "-i", tmp_path, "-af", "highpass=f=50, lowpass=f=4000, equalizer=f=80:t=q:w=1:g=3, equalizer=f=400:t=h:width_type=q:width=2:g=-6, dynaudnorm=f=60:g=15", "/voice/" + filename]
+            cmd = ["timeout", "60s", "ffmpeg", "-i", tmp_path, "-af", "highpass=f=50, lowpass=f=4000, equalizer=f=80:t=q:w=1:g=3, equalizer=f=400:t=h:width_type=q:width=2:g=-6, dynaudnorm=f=60:g=15", "/voice/" + filename]
             try:
                 output = subprocess.check_output(cmd)
             finally:
@@ -154,19 +180,23 @@ async def download(update, context):
             if text is None:
                 return
             elif "soundcloud.com" in text or "youtu" in text:
-                match = re.search("(?P<url>https?://[^\s]+)", text)
+                match = re.search(r"(?P<url>https?://[^\s]+)", text)
 
                 if match is not None:
                     url = match.group("url")
                     if not validate_url(url):
                         await context.bot.send_message(chat_id=chat_id, text="Sorry, only YouTube and SoundCloud links are supported.")
                         return
-                    if "soundcloud" in url:
+                    if not check_disk_space("/music"):
+                        await context.bot.send_message(chat_id=chat_id, text="Low disk space, cannot download.")
+                        return
+                    if is_soundcloud_url(url):
                       cmd = ["timeout", "300s", "yt-dlp", "--print", "after_move:filepath", "--no-simulate", "--add-metadata", "--extract-audio", url]
                     else:
                       cmd = ["timeout", "300s", "yt-dlp", "--print", "after_move:filepath", "--no-simulate", "--add-metadata", "--extract-audio", "-f", "140", url]
                     output = subprocess.check_output(cmd).decode().strip()
                     path, filename_ext = os.path.split(output)
+                    filename_ext = sanitize_filename(filename_ext)
                     mpc_add_file(filename_ext)
                     await context.bot.send_message(chat_id=chat_id, text="Track "+filename_ext+" downloaded and added to playlist!")
 
@@ -193,6 +223,9 @@ async def add_to_playlist(update, context):
         return
 
     filename = " ".join(args)
+    if filename != sanitize_filename(filename):
+        await context.bot.send_message(chat_id=chat_id, text="Invalid filename.")
+        return
 
     try:
         mpc_add_file(filename)
@@ -213,7 +246,11 @@ async def seek(update, context):
     args = context.args
 
     if not args:
-        await context.bot.send_message(chat_id=chat_id, text="Please provide an position seek.")
+        await context.bot.send_message(chat_id=chat_id, text="Please provide a position to seek.")
+        return
+
+    if not validate_seek_arg(args[0]):
+        await context.bot.send_message(chat_id=chat_id, text="Invalid seek position. Use seconds, MM:SS, or percentage%.")
         return
 
     await cmd("seek", update, context)
@@ -227,7 +264,11 @@ async def delete(update, context):
     args = context.args
 
     if not args:
-        await context.bot.send_message(chat_id=chat_id, text="Please provide an # in playlist to delete.")
+        await context.bot.send_message(chat_id=chat_id, text="Please provide a # in playlist to delete.")
+        return
+
+    if not validate_position_arg(args[0]):
+        await context.bot.send_message(chat_id=chat_id, text="Invalid position. Use a number.")
         return
 
     await cmd("del", update, context)
@@ -240,8 +281,12 @@ async def move(update, context):
         return
     args = context.args
 
-    if not args:
+    if len(args) < 2:
         await context.bot.send_message(chat_id=chat_id, text="Please provide pos1 and pos2 in playlist to move.")
+        return
+
+    if not validate_position_arg(args[0]) or not validate_position_arg(args[1]):
+        await context.bot.send_message(chat_id=chat_id, text="Invalid positions. Use numbers.")
         return
 
     await cmd("move", update, context)
