@@ -3,9 +3,53 @@ import re
 import sys
 import logging
 import time
+import uuid
+from urllib.parse import urlparse
 import telegram
 from telegram.ext import Application, Updater, CommandHandler, MessageHandler, filters
 import subprocess
+
+ALLOWED_URL_DOMAINS = {
+    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
+    "youtu.be",
+    "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com",
+}
+
+ADMIN_USERNAMES = set()
+
+def load_admin_usernames():
+    raw = os.environ.get("ADMIN_USERNAMES", "")
+    for name in raw.split(","):
+        name = name.strip().lstrip("@")
+        if name:
+            ADMIN_USERNAMES.add(name.lower())
+
+def is_admin(update):
+    if not ADMIN_USERNAMES:
+        return True
+    user = update.effective_user
+    if user and user.username:
+        return user.username.lower() in ADMIN_USERNAMES
+    return False
+
+def sanitize_filename(filename):
+    filename = os.path.basename(filename)
+    filename = re.sub(r'[^\w\s\-.]', '_', filename)
+    filename = filename.strip('. ')
+    if not filename:
+        filename = str(uuid.uuid4())
+    return filename
+
+def validate_url(url):
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        if parsed.hostname and parsed.hostname.lower() in ALLOWED_URL_DOMAINS:
+            return True
+    except Exception:
+        pass
+    return False
 
 def mpc_command(command, args=None, retries=0, delay=5):
     return mpc_port_command(command, "mpd", "6600", args, retries, delay)
@@ -76,47 +120,47 @@ def mpc_add_file(filename):
 
 async def download(update, context):
     chat_id = update.effective_chat.id
+    if not is_admin(update):
+        return
     try:
-        # Check if the message contains an audio file
-
         audio = update.message.audio
         voice = update.message.voice
         if audio:
             file_id = audio.file_id
             newFile = await context.bot.getFile(file_id)
-            filename = newFile.file_path.split("/")[-1]
+            filename = sanitize_filename(newFile.file_path.split("/")[-1])
             await newFile.download_to_drive(custom_path="/music/" + filename)
             mpc_add_file(filename)
             await context.bot.send_message(chat_id=chat_id, text="Audio file added to playlist!")
         elif voice:
             file_id = voice.file_id
             newFile = await context.bot.getFile(file_id)
-            filename = newFile.file_path.split("/")[-1]
-            await newFile.download_to_drive(custom_path="/tmp/" + filename)
-            cmd = ["ffmpeg", "-i", "/tmp/" + filename, "-af", "highpass=f=50, lowpass=f=4000, equalizer=f=80:t=q:w=1:g=3, equalizer=f=400:t=h:width_type=q:width=2:g=-6, dynaudnorm=f=60:g=15", "/voice/" + filename]
-            output = subprocess.check_output(cmd)
+            filename = sanitize_filename(newFile.file_path.split("/")[-1])
+            tmp_path = "/tmp/" + filename
+            await newFile.download_to_drive(custom_path=tmp_path)
+            cmd = ["ffmpeg", "-i", tmp_path, "-af", "highpass=f=50, lowpass=f=4000, equalizer=f=80:t=q:w=1:g=3, equalizer=f=400:t=h:width_type=q:width=2:g=-6, dynaudnorm=f=60:g=15", "/voice/" + filename]
+            try:
+                output = subprocess.check_output(cmd)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
             mpc_voice_command("clear")
             mpc_voice_command("--wait",["update"])
             mpc_voice_command("insert", [filename])
             mpc_voice_command("play")
             await context.bot.send_message(chat_id=chat_id, text="Voice file added to voice stream!")
         else:
-            # Check if the message contains a link to a SoundCloud or YouTube track
             text = update.message.text
             if text is None:
-                # await context.bot.send_message(chat_id=chat_id, text="No text and I don't recognize that type of message.")
                 return
             elif "soundcloud.com" in text or "youtu" in text:
-                # await context.bot.send_message(chat_id=chat_id, text="try to dl "+text)
-                # Download the track using yt-dlp
-                # cmd = ["timeout", "300s", "yt-dlp", "--print", "filename", "--no-simulate", "-x", "--audio-quality", "0", "--audio-format", "mp3", "-o", "../music/%(title)s.%(ext)s", text]
-                # , "--restrict-filenames",
-
                 match = re.search("(?P<url>https?://[^\s]+)", text)
 
                 if match is not None:
-                    # Extract the URL from the match object and store it in a variable
                     url = match.group("url")
+                    if not validate_url(url):
+                        await context.bot.send_message(chat_id=chat_id, text="Sorry, only YouTube and SoundCloud links are supported.")
+                        return
                     if "soundcloud" in url:
                       cmd = ["timeout", "300s", "yt-dlp", "--print", "after_move:filepath", "--no-simulate", "--add-metadata", "--extract-audio", url]
                     else:
@@ -127,7 +171,6 @@ async def download(update, context):
                     await context.bot.send_message(chat_id=chat_id, text="Track "+filename_ext+" downloaded and added to playlist!")
 
             else:
-                # await context.bot.send_message(chat_id=chat_id, text="Sorry, I don't recognize that type of message.")
                 return
     except Exception as e:
         logging.error(str(e))
@@ -135,8 +178,14 @@ async def download(update, context):
         await context.bot.send_message(chat_id=chat_id, text="Sorry, an error occurred while processing your message.")
 
 
+async def admin_only(update, context):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, this command is for admins only.")
+
 async def add_to_playlist(update, context):
     chat_id = update.effective_chat.id
+    if not is_admin(update):
+        await admin_only(update, context)
+        return
     args = context.args
 
     if not args:
@@ -146,7 +195,6 @@ async def add_to_playlist(update, context):
     filename = " ".join(args)
 
     try:
-        # Add the provided filename to MPD playlist
         mpc_add_file(filename)
 
         await context.bot.send_message(chat_id=chat_id, text=f"Added {filename} to the playlist!")
@@ -159,6 +207,9 @@ async def add_to_playlist(update, context):
 
 async def seek(update, context):
     chat_id = update.effective_chat.id
+    if not is_admin(update):
+        await admin_only(update, context)
+        return
     args = context.args
 
     if not args:
@@ -170,6 +221,9 @@ async def seek(update, context):
 
 async def delete(update, context):
     chat_id = update.effective_chat.id
+    if not is_admin(update):
+        await admin_only(update, context)
+        return
     args = context.args
 
     if not args:
@@ -181,6 +235,9 @@ async def delete(update, context):
 
 async def move(update, context):
     chat_id = update.effective_chat.id
+    if not is_admin(update):
+        await admin_only(update, context)
+        return
     args = context.args
 
     if not args:
@@ -200,9 +257,15 @@ async def playnext(update, context):
     await cmd("next", update, context)
 
 async def stop(update, context):
+    if not is_admin(update):
+        await admin_only(update, context)
+        return
     await cmd("stop", update, context)
 
 async def play(update, context):
+    if not is_admin(update):
+        await admin_only(update, context)
+        return
     await cmd("play", update, context)
 
 async def playlist(update, context):
@@ -217,6 +280,7 @@ async def status(update, context):
     await cmd("status", update, context)
 
 def main():
+    load_admin_usernames()
     application = Application.builder().token(os.environ['TELEGRAM_BOT_TOKEN']).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("next", playnext))
@@ -234,7 +298,6 @@ def main():
     mpd_voice_init()
     os.chdir('/music')
     application.run_polling(1.0)
-    # updater.idle()
 
 if __name__ == '__main__':
     main()
