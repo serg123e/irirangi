@@ -1,4 +1,4 @@
-FROM python:3.9-alpine
+FROM python:3.12-alpine
 
 ARG UID
 ARG GID
@@ -17,7 +17,6 @@ RUN apk add --no-cache --virtual .build-deps \
     && pip install --no-cache-dir -r requirements.txt \
     && apk del .build-deps
 RUN apk add mpc ffmpeg
-RUN apk add mp3gain --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing/
 
 USER bot
 
